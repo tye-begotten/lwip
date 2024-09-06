@@ -94,8 +94,8 @@
     "User-Agent: %s\r\n" /* User-Agent */ \
     "Accept: */*\r\n" \
     "Connection: Close\r\n" /* we don't support persistent connections, yet */ \
-    "\r\n"
-#define HTTPC_REQ_11_FORMAT(uri) HTTPC_REQ_11, uri, HTTPC_CLIENT_AGENT
+    "%s\r\n"
+#define HTTPC_REQ_11_FORMAT(uri, headers) HTTPC_REQ_11, uri, HTTPC_CLIENT_AGENT, headers
 
 /* GET request with host */
 #define HTTPC_REQ_11_HOST "GET %s HTTP/1.1\r\n" /* URI */\
@@ -103,8 +103,8 @@
     "Accept: */*\r\n" \
     "Host: %s\r\n" /* server name */ \
     "Connection: Close\r\n" /* we don't support persistent connections, yet */ \
-    "\r\n"
-#define HTTPC_REQ_11_HOST_FORMAT(uri, srv_name) HTTPC_REQ_11_HOST, uri, HTTPC_CLIENT_AGENT, srv_name
+    "%s\r\n"
+#define HTTPC_REQ_11_HOST_FORMAT(uri, srv_name, headers) HTTPC_REQ_11_HOST, uri, HTTPC_CLIENT_AGENT, srv_name, headers
 
 /* GET request with proxy */
 #define HTTPC_REQ_11_PROXY "GET http://%s%s HTTP/1.1\r\n" /* HOST, URI */\
@@ -112,8 +112,8 @@
     "Accept: */*\r\n" \
     "Host: %s\r\n" /* server name */ \
     "Connection: Close\r\n" /* we don't support persistent connections, yet */ \
-    "\r\n"
-#define HTTPC_REQ_11_PROXY_FORMAT(host, uri, srv_name) HTTPC_REQ_11_PROXY, host, uri, HTTPC_CLIENT_AGENT, srv_name
+    "%s\r\n"
+#define HTTPC_REQ_11_PROXY_FORMAT(host, uri, srv_name, headers) HTTPC_REQ_11_PROXY, host, uri, HTTPC_CLIENT_AGENT, srv_name, headers
 
 /* GET request with proxy (non-default server port) */
 #define HTTPC_REQ_11_PROXY_PORT "GET http://%s:%d%s HTTP/1.1\r\n" /* HOST, host-port, URI */\
@@ -121,8 +121,8 @@
     "Accept: */*\r\n" \
     "Host: %s\r\n" /* server name */ \
     "Connection: Close\r\n" /* we don't support persistent connections, yet */ \
-    "\r\n"
-#define HTTPC_REQ_11_PROXY_PORT_FORMAT(host, host_port, uri, srv_name) HTTPC_REQ_11_PROXY_PORT, host, host_port, uri, HTTPC_CLIENT_AGENT, srv_name
+    "%s\r\n"
+#define HTTPC_REQ_11_PROXY_PORT_FORMAT(host, host_port, uri, srv_name, headers) HTTPC_REQ_11_PROXY_PORT, host, host_port, uri, HTTPC_CLIENT_AGENT, srv_name, headers
 
 typedef enum ehttpc_parse_state {
   HTTPC_PARSE_WAIT_FIRST_LINE = 0,
@@ -229,15 +229,12 @@ http_parse_response_status(struct pbuf *p, u16_t *http_version, u16_t *http_stat
         } else {
           status_num_len = end1 - space1 - 1;
         }
-        if (status_num_len < sizeof(status_num)) {
-          if (pbuf_copy_partial(p, status_num, (u16_t)status_num_len, space1 + 1) == status_num_len) {
-            int status;
-            status_num[status_num_len] = 0;
-            status = atoi(status_num);
-            if ((status > 0) && (status <= 0xFFFF)) {
-              *http_status = (u16_t)status;
-              return ERR_OK;
-            }
+        memset(status_num, 0, sizeof(status_num));
+        if (pbuf_copy_partial(p, status_num, (u16_t)status_num_len, space1 + 1) == status_num_len) {
+          int status = atoi(status_num);
+          if ((status > 0) && (status <= 0xFFFF)) {
+            *http_status = (u16_t)status;
+            return ERR_OK;
           }
         }
       }
@@ -264,14 +261,11 @@ http_wait_headers(struct pbuf *p, u32_t *content_length, u16_t *total_header_len
       if (content_len_line_end != 0xFFFF) {
         char content_len_num[16];
         u16_t content_len_num_len = (u16_t)(content_len_line_end - content_len_hdr - 16);
-        if (content_len_num_len < sizeof(content_len_num)) {
-          if (pbuf_copy_partial(p, content_len_num, content_len_num_len, content_len_hdr + 16) == content_len_num_len) {
-            int len;
-            content_len_num[content_len_num_len] = 0;
-            len = atoi(content_len_num);
-            if ((len >= 0) && ((u32_t)len < HTTPC_CONTENT_LEN_INVALID)) {
-              *content_length = (u32_t)len;
-            }
+        memset(content_len_num, 0, sizeof(content_len_num));
+        if (pbuf_copy_partial(p, content_len_num, content_len_num_len, content_len_hdr + 16) == content_len_num_len) {
+          int len = atoi(content_len_num);
+          if ((len >= 0) && ((u32_t)len < HTTPC_CONTENT_LEN_INVALID)) {
+            *content_length = (u32_t)len;
           }
         }
       }
@@ -495,18 +489,19 @@ static int
 httpc_create_request_string(const httpc_connection_t *settings, const char* server_name, int server_port, const char* uri,
                             int use_host, char *buffer, size_t buffer_size)
 {
-  if (settings && settings->use_proxy) {
+  const char *headers = settings->headers;
+  if (settings->use_proxy) {
     LWIP_ASSERT("server_name != NULL", server_name != NULL);
     if (server_port != HTTP_DEFAULT_PORT) {
-      return snprintf(buffer, buffer_size, HTTPC_REQ_11_PROXY_PORT_FORMAT(server_name, server_port, uri, server_name));
+      return snprintf(buffer, buffer_size, HTTPC_REQ_11_PROXY_PORT_FORMAT(server_name, server_port, uri, server_name, headers));
     } else {
-      return snprintf(buffer, buffer_size, HTTPC_REQ_11_PROXY_FORMAT(server_name, uri, server_name));
+      return snprintf(buffer, buffer_size, HTTPC_REQ_11_PROXY_FORMAT(server_name, uri, server_name, headers));
     }
   } else if (use_host) {
     LWIP_ASSERT("server_name != NULL", server_name != NULL);
-    return snprintf(buffer, buffer_size, HTTPC_REQ_11_HOST_FORMAT(uri, server_name));
+    return snprintf(buffer, buffer_size, HTTPC_REQ_11_HOST_FORMAT(uri, server_name, headers));
   } else {
-    return snprintf(buffer, buffer_size, HTTPC_REQ_11_FORMAT(uri));
+    return snprintf(buffer, buffer_size, HTTPC_REQ_11_FORMAT(uri, headers));
   }
 }
 
@@ -523,7 +518,6 @@ httpc_init_connection_common(httpc_state_t **connection, const httpc_connection_
   size_t server_name_len, uri_len;
 #endif
 
-  LWIP_ERROR("httpc connection settings not give", settings != NULL, return ERR_ARG;);
   LWIP_ASSERT("uri != NULL", uri != NULL);
 
   /* get request len */
@@ -568,12 +562,12 @@ httpc_init_connection_common(httpc_state_t **connection, const httpc_connection_
   req->uri = req->server_name + server_name_len + 1;
   memcpy(req->uri, uri, uri_len + 1);
 #endif
-  req->pcb = altcp_new(settings ? settings->altcp_allocator : NULL);
+  req->pcb = altcp_new(settings->altcp_allocator);
   if(req->pcb == NULL) {
     httpc_free_state(req);
     return ERR_MEM;
   }
-  req->remote_port = (settings && settings->use_proxy) ? settings->proxy_port : server_port;
+  req->remote_port = settings->use_proxy ? settings->proxy_port : server_port;
   altcp_arg(req->pcb, req);
   altcp_recv(req->pcb, httpc_tcp_recv);
   altcp_err(req->pcb, httpc_tcp_err);
@@ -633,7 +627,7 @@ httpc_init_connection_addr(httpc_state_t **connection, const httpc_connection_t 
  * @param settings connection settings (callbacks, proxy, etc.)
  * @param recv_fn the http body (not the headers) are passed to this callback
  * @param callback_arg argument passed to all the callbacks
- * @param connection retrieves the connection handle (to match in callbacks)
+ * @param connection retreives the connection handle (to match in callbacks)
  * @return ERR_OK if starting the request succeeds (callback_fn will be called later)
  *         or an error code
  */
@@ -678,7 +672,7 @@ httpc_get_file(const ip_addr_t* server_addr, u16_t port, const char* uri, const 
  * @param settings connection settings (callbacks, proxy, etc.)
  * @param recv_fn the http body (not the headers) are passed to this callback
  * @param callback_arg argument passed to all the callbacks
- * @param connection retrieves the connection handle (to match in callbacks)
+ * @param connection retreives the connection handle (to match in callbacks)
  * @return ERR_OK if starting the request succeeds (callback_fn will be called later)
  *         or an error code
  */
@@ -696,12 +690,12 @@ httpc_get_file_dns(const char* server_name, u16_t port, const char* uri, const h
     return err;
   }
 
-  if (settings && settings->use_proxy) {
+  if (settings->use_proxy) {
     err = httpc_get_internal_addr(req, &settings->proxy_addr);
   } else {
     err = httpc_get_internal_dns(req, server_name);
   }
-  if (err != ERR_OK) {
+  if(err != ERR_OK) {
     httpc_free_state(req);
     return err;
   }
@@ -734,17 +728,12 @@ httpc_fs_init(httpc_filestate_t **filestate_out, const char* local_file_name,
 {
   httpc_filestate_t *filestate;
   size_t file_len, alloc_len;
-  mem_size_t alloc_mem_size;
   FILE *f;
 
   file_len = strlen(local_file_name);
   alloc_len = sizeof(httpc_filestate_t) + file_len + 1;
-  alloc_mem_size = (mem_size_t)alloc_len;
-  if (alloc_mem_size < alloc_len) {
-    /* overflow */
-    return ERR_MEM;
-  }
-  filestate = (httpc_filestate_t *)mem_malloc(alloc_mem_size);
+
+  filestate = (httpc_filestate_t *)mem_malloc((mem_size_t)alloc_len);
   if (filestate == NULL) {
     return ERR_MEM;
   }
@@ -824,7 +813,7 @@ httpc_fs_tcp_recv(void *arg, struct altcp_pcb *pcb, struct pbuf *p, err_t err)
  * @param uri uri to get from the server, remember leading "/"!
  * @param settings connection settings (callbacks, proxy, etc.)
  * @param callback_arg argument passed to all the callbacks
- * @param connection retrieves the connection handle (to match in callbacks)
+ * @param connection retreives the connection handle (to match in callbacks)
  * @return ERR_OK if starting the request succeeds (callback_fn will be called later)
  *         or an error code
  */
@@ -876,7 +865,7 @@ httpc_get_file_to_disk(const ip_addr_t* server_addr, u16_t port, const char* uri
  * @param uri uri to get from the server, remember leading "/"!
  * @param settings connection settings (callbacks, proxy, etc.)
  * @param callback_arg argument passed to all the callbacks
- * @param connection retrieves the connection handle (to match in callbacks)
+ * @param connection retreives the connection handle (to match in callbacks)
  * @return ERR_OK if starting the request succeeds (callback_fn will be called later)
  *         or an error code
  */

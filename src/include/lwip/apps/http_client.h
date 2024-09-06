@@ -53,7 +53,7 @@ extern "C" {
 
 /**
  * @ingroup httpc
- * HTTPC_HAVE_FILE_IO: define this to 1 to have functions downloading directly
+ * HTTPC_HAVE_FILE_IO: define this to 1 to have functions dowloading directly
  * to disk via fopen/fwrite.
  * These functions are example implementations of the interface only.
  */
@@ -116,7 +116,7 @@ typedef void (*httpc_result_fn)(void *arg, httpc_result_t httpc_result, u32_t rx
  * @param connection http client connection
  * @param arg argument specified when initiating the request
  * @param hdr header pbuf(s) (may contain data also)
- * @param hdr_len length of the headers in 'hdr'
+ * @param hdr_len length of the heders in 'hdr'
  * @param content_len content length as received in the headers (-1 if not received)
  * @return if != ERR_OK is returned, the connection is aborted
  */
@@ -137,7 +137,6 @@ typedef struct _httpc_connection {
   /* this callback is called after receiving the http headers
      It can abort the connection by returning != ERR_OK */
   httpc_headers_done_fn headers_done_fn;
-  char *headers;
 } httpc_connection_t;
 
 err_t httpc_get_file(const ip_addr_t* server_addr, u16_t port, const char* uri, const httpc_connection_t *settings,
